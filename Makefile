@@ -1,11 +1,15 @@
 all: process daemon
 
-process: process.c
-	gcc process.c -o process $(CFLAGS) -lmagic
+monitor.o: monitor.c
+	gcc monitor.c -c -o monitor.o $(CFLAGS)
 
-daemon: daemon.c
-	gcc daemon.c -o daemon $(CFLAGS)
+process: process.c monitor.o
+	gcc process.c monitor.o -o process $(CFLAGS) -lmagic
+
+daemon: daemon.c monitor.o
+	gcc daemon.c monitor.o -o daemon $(CFLAGS) -lmagic
 
 clean:
 	rm daemon
 	rm process
+	rm *.o

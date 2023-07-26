@@ -2,11 +2,9 @@
 
 C UNIX program for controlling file types in directory
 
-## Usage
+## Program
 
-The process will delete every file that isn't whitelisted in the config file.
-
-### Launch
+The program version will delete every file that isn't whitelisted in the config file once and then shut off.
 
 ```Bash
 ./process <path to config> <args>
@@ -18,7 +16,15 @@ Process supports 3 additional optional arguments:
 - -v: the verbose flag will make the process notify the user of it's actions
 - -c: the confirm flag will make the process check with the user on the deletions (Very useful for debugging config files)
 
-### Config file
+## Daemon
+
+The daemon program will create a new daemon process that will do the same as the program, but once every hour until it is killed or it can no longer find the config file.
+
+```Bash
+./daemon <path to config file>
+```
+
+## Config file
 
 There are two kinds of lines in the config file:
 
