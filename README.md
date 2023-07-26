@@ -1,26 +1,35 @@
 # reimagined-adventure
 
-C UNIX daemon for controlling file types in directory
+C UNIX program for controlling file types in directory
 
 ## Usage
 
-Provide a path to a config file, and the process will create a daemon that periodically checks that config.
-If that config cannot be found the daemon dies, else the config will be reexamined and the provided directories cleansed of files that don't fit with the whitelist in the config
+The process will delete every file that isn't whitelisted in the config file.
 
 ### Launch
 
 ```Bash
-./daemon <path to config>
+./process <path to config> <args>
 ```
+
+Process supports 3 additional optional arguments:
+
+- -r: the recursive flag will make the process apply the rules of a given directory to it's subdirectories
+- -v: the verbose flag will make the process notify the user of it's actions
+- -c: the confirm flag will make the process check with the user on the deletions (Very useful for debugging config files)
 
 ### Config file
 
-The syntax is quite simple really.
+There are two kinds of lines in the config file:
 
-```Text
-./test-directory
-    file
-    some other kind of file
-./other
-    file
+- directory definition lines: these provide the path to the directory
+- whitelist lines: these define which files the program should ignore
+
+Each whitelist line starts with either a \t character (tab) or a number of spaces.
+All whitelist lines that follow a dir def line are considered to apply to only this one directory.
+Whitelist lines should either contain filenames that should be ignored, or MIME types that should be ignored.
+You can find what MIME type a file has by using this command:
+
+```Bash
+file --mime-type <filename>
 ```

@@ -1,1 +1,2 @@
-sudo apt install make gcc
+#!/bin/bash
+sudo apt install make gcc libmagic-dev libmagic1
