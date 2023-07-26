@@ -7,6 +7,7 @@
 #include <syslog.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/inotify.h>
 //prctl is non portable unfortunately
 #ifdef __linux__ 
 #include <sys/prctl.h>
@@ -16,9 +17,19 @@
     #error "Compilation on non unix systems not supported"
 #endif
 
-#define hour 3600
-
 #define daemonName "directory-monitor"
+
+#define EVENT_SIZE ( sizeof (struct inotify_event) )
+#define EVENT_BUF_LEN ( 1024 * ( EVENT_SIZE + 16 ) )
+
+struct watchedDirectory{
+    int ed;
+    dirConfig config;
+};
+
+struct watchedDirectory* initEvents(config curConfig, int fd);
+
+void rmEvents(struct watchedDirectory* wd, size_t len, int fd);
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -62,31 +73,84 @@ int main(int argc, char** argv){
                 close (x);
             }
             openlog(daemonName, LOG_PID, LOG_DAEMON);
-            syslog(LOG_NOTICE, "Directory Monitor Daemon activating...");
+            syslog(LOG_NOTICE, "Activating...");
+            config curConfig = getConfig(configPath);
+            //first we need to setup inotify events
+            int fd = inotify_init();
+            if(fd < 0){
+                syslog(LOG_ERR, "Couldn't initialise inotify");
+                exit(EXIT_FAILURE);
+            }
+            struct watchedDirectory* wd = initEvents(curConfig, fd);
             while(true){
-                if (access(configPath, F_OK) != 0) {
-                    syslog (LOG_ERR, "Couldn't find config file, terminating...");
+                unsigned char inotifyBuffer[EVENT_BUF_LEN];
+                int length = read(fd, inotifyBuffer, EVENT_BUF_LEN);
+                if(length < 0){
+                    syslog(LOG_ERR, "Couldn't read inotify buffer");
                     exit(EXIT_FAILURE);
                 }
-                config curConfig = getConfig(configPath);
-                for(int i = 0; i < curConfig.len; i++){
-                    if(monitorDirectory(curConfig.partConfigs[i], false, false, false) < 0){
-                        syslog(LOG_ERR, "Error encountered in monitorDirectory. errno=%d", errno);
-                        exit(EXIT_FAILURE);
+                int i = 0;
+                while(i < length){
+                    struct inotify_event *event = (struct inotify_event*)&inotifyBuffer[ i ];
+                    if (event->len){
+                        if((event->mask & IN_CREATE) && !(event->mask & IN_ISDIR)){
+                            dirConfig* locConfig = NULL;
+                            for(int i = 0; i < curConfig.len; i++){
+                                if(event->wd == wd[i].ed){
+                                    locConfig = &wd[i].config;
+                                }
+                            }
+                            if(locConfig == NULL){
+                                syslog(LOG_ERR, "Invalid event recieved %s", event->name);
+                                exit(EXIT_FAILURE);
+                            }
+                            if(monitorDirectory(*locConfig, false, false, false) < 0){
+                                syslog(LOG_ERR, "Error encountered in monitorDirectory");
+                            }
+                        }
                     }
-                    freeDirConfig(curConfig.partConfigs[i]);
+                    i += EVENT_SIZE + event->len;
                 }
-                free(curConfig.partConfigs);
-                unsigned int sleepDiff = sleep(hour);
-                if(sleepDiff > 0){
+                if (access(configPath, F_OK) != 0) {
+                    syslog(LOG_NOTICE, "Detected config removal.");
                     break;
                 }
+                else{
+                    //update config and events
+                    rmEvents(wd, curConfig.len, fd);
+                    free(curConfig.partConfigs);
+                    curConfig = getConfig(configPath);
+                    wd = initEvents(curConfig, fd);
+                }
             }
-            syslog (LOG_NOTICE, "Directory Monitor Daemon terminating peacefully...");
+            rmEvents(wd, curConfig.len, fd);
+            close(fd);
+            syslog (LOG_NOTICE, "Terminating peacefully...");
             closelog();
             exit(EXIT_SUCCESS);
         }
         
     } 
     return 0;
+}
+
+struct watchedDirectory* initEvents(config curConfig, int fd){
+    struct watchedDirectory* wd = calloc(curConfig.len, sizeof(struct watchedDirectory));
+    for(int i = 0; i < curConfig.len; i++){
+        wd[i].ed = inotify_add_watch(fd, curConfig.partConfigs[i].dirName, IN_CREATE);
+        if(wd[i].ed < 0){
+            syslog(LOG_ERR, "Couldn't initialise inotify event for %s", curConfig.partConfigs[i].dirName);
+            exit(EXIT_FAILURE);
+        }
+        wd[i].config = curConfig.partConfigs[i];
+    }
+    return wd;
+}
+
+void rmEvents(struct watchedDirectory* wd, size_t len, int fd){
+    for(int i = 0; i < len; i++){
+        inotify_rm_watch(fd, wd[i].ed);
+        freeDirConfig(wd[i].config);
+    }
+    free(wd);
 }
