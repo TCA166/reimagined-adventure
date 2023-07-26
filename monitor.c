@@ -32,17 +32,40 @@ config getConfig(char* filename){
     part.dirName = NULL;
     part.whitelist = NULL;
     part.whitelistLen = 0;
+    part.move = NULL;
     char* token = strtok(fileContents, "\n");
     while(token != NULL){
-        if(token[0] == '\t' || token[0] == ' '){ //we are in whitelist line
+        if(token[0] == '\t' || token[0] == ' '){ //we are in local line
             token++;
             while(*token == ' '){
                 token++;
             }
-            part.whitelist = realloc(part.whitelist, (part.whitelistLen + 1) * sizeof(char*));
-            part.whitelist[part.whitelistLen] = malloc(strlen(token) + 1);
-            strcpy(part.whitelist[part.whitelistLen], token);
-            part.whitelistLen++;
+            if(*token == '$'){ //we are in variable definition line
+                token++;
+                char* delimit = strchr(token, ':');
+                if(delimit != NULL){
+                    *delimit = '\0';
+                    char* value = delimit + 1;
+                    if(strcmp(token, "move") == 0){
+                        part.move = realpath(value, NULL);
+                    }
+                    else if(strcmp(token, "recursive") == 0){
+                        part.recursive = strcmp(value, "true") == 0;
+                    }
+                    else if(strcmp(token, "verbose") == 0){
+                        part.verbose = strcmp(value, "true") == 0;
+                    }
+                    else if(strcmp(token, "confirm") == 0){
+                        part.confirm = strcmp(value, "true") == 0;
+                    }
+                }
+            }
+            else{ //we are in a whitelist line
+                part.whitelist = realloc(part.whitelist, (part.whitelistLen + 1) * sizeof(char*));
+                part.whitelist[part.whitelistLen] = malloc(strlen(token) + 1);
+                strcpy(part.whitelist[part.whitelistLen], token);
+                part.whitelistLen++;
+            }
         }
         else{ //we are in dir def line
             if(part.dirName != NULL){
@@ -54,6 +77,7 @@ config getConfig(char* filename){
                 part.dirName = NULL;
                 part.whitelist = NULL;
                 part.whitelistLen = 0;
+                part.move = NULL;
             }
             part.dirName = malloc(strlen(token) + 1);
             strcpy(part.dirName, token);
@@ -64,6 +88,14 @@ config getConfig(char* filename){
     result.partConfigs = realloc(result.partConfigs, (result.len + 1) * sizeof(struct dirConfig));
     result.partConfigs[result.len] = part;
     result.len++;
+    return result;
+}
+
+char* join(const char* a, const char* b, const char* delimit){
+    char* result = calloc(strlen(a) + strlen(b) + strlen(delimit) + 1, 1);
+    strcpy(result, a);
+    strcat(result, delimit);
+    strcat(result, b);
     return result;
 }
 
@@ -81,7 +113,7 @@ bool userConfirm(const char* filename){
     }
 }
 
-int monitorDirectory(dirConfig config, bool recursive, bool verbose, bool confirm){
+int monitorDirectory(dirConfig config){
     const char* dirFilename = realpath(config.dirName, NULL);
     if(dirFilename == NULL){
         return -1;
@@ -96,10 +128,7 @@ int monitorDirectory(dirConfig config, bool recursive, bool verbose, bool confir
     int deleted = 0;
     struct dirent* entity; //Our currently analyzed entity
     while((entity = readdir(directory)) != NULL){
-        char* entityFilename = calloc(strlen(dirFilename) + strlen(entity->d_name) + 2, 1);
-        strcpy(entityFilename, dirFilename);
-        strcat(entityFilename, "/");
-        strcat(entityFilename, entity->d_name);
+        char* entityFilename = join(dirFilename, entity->d_name, "/");
         if(entity->d_type == DT_REG){ //We are looking at a file
             magic_t magic = magic_open(MAGIC_MIME_TYPE);
             if(magic_load(magic, NULL) < 0){
@@ -113,27 +142,39 @@ int monitorDirectory(dirConfig config, bool recursive, bool verbose, bool confir
             for(int i = 0; i < config.whitelistLen; i++){
                 if(strcmp(mime, config.whitelist[i]) == 0 || strcmp(entityFilename, config.whitelist[i]) == 0 || strcmp(entity->d_name, config.whitelist[i]) == 0){
                     found = true;
-                    if(verbose){
+                    if(config.verbose){
                         printf("Skipping %s because it is whitelisted\n", entity->d_name);
                     }
                     break;
                 }
             }
-            if(!found && (!confirm || userConfirm(entityFilename))){
-                if(remove(entityFilename) != 0){
-                    return -1;
+            if(!found && (!config.confirm || userConfirm(entityFilename))){
+                if(config.move != NULL){
+                    char* newFilename = join(config.move, entity->d_name, "/");
+                    if(rename(entityFilename, newFilename) < 0){
+                        return -1;
+                    }
+                    if(config.verbose){
+                        printf("Moved %s to %s because it wasn't whitelisted\n", entityFilename, newFilename);
+                    }
+                    free(newFilename);
                 }
-                if(verbose){
-                    printf("Removed %s because it wasn't whitelisted\n", entity->d_name);
+                else{
+                    if(remove(entityFilename) != 0){
+                        return -1;
+                    }
+                    if(config.verbose){
+                        printf("Removed %s because it wasn't whitelisted\n", entity->d_name);
+                    }
                 }
                 deleted++;
             }
             magic_close(magic);
         }
-        else if(entity->d_type == DT_DIR && recursive){ //We are looking at a directory
+        else if(entity->d_type == DT_DIR && (config.recursive || config.recursive)){ //We are looking at a directory
             dirConfig subConfig = config;
             subConfig.dirName = entityFilename;
-            if(monitorDirectory(subConfig, recursive, verbose, confirm) < 0){
+            if(monitorDirectory(subConfig) < 0){
                 return -1;
             }
         }

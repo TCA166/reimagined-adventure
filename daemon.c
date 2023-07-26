@@ -8,13 +8,10 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/inotify.h>
-//prctl is non portable unfortunately
-#ifdef __linux__ 
 #include <sys/prctl.h>
-#endif
 
-#ifndef __unix__
-    #error "Compilation on non unix systems not supported"
+#ifndef __linux__
+    #error "Compilation on non linux systems not supported"
 #endif
 
 #define daemonName "directory-monitor"
@@ -71,9 +68,7 @@ int main(int argc, char** argv){
         }
         else{ //finally deamon process
             //set the daemon name
-            #ifdef __linux__
             prctl(PR_SET_NAME, daemonName);
-            #endif
             argv[0] = daemonName;
             //close all file descriptors
             for (int x = sysconf(_SC_OPEN_MAX); x >= 0; x--){
@@ -118,7 +113,7 @@ int main(int argc, char** argv){
                                 exit(EXIT_FAILURE);
                             }
                             //Do the main thing
-                            if(monitorDirectory(*locConfig, false, false, false) < 0){
+                            if(monitorDirectory(*locConfig) < 0){
                                 syslog(LOG_ERR, "Error encountered in monitorDirectory");
                             }
                         }

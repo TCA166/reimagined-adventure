@@ -33,7 +33,10 @@ int main(int argc, char** argv){
     config mainConfig = getConfig(configPath);
     printf("Config loaded\n");  
     for(int i = 0; i < mainConfig.len; i++){
-        if(monitorDirectory(mainConfig.partConfigs[i], recursive, verbose, confirmMode) < 0){
+        mainConfig.partConfigs[i].confirm = mainConfig.partConfigs[i].confirm || confirmMode;
+        mainConfig.partConfigs[i].verbose = mainConfig.partConfigs[i].verbose || verbose;
+        mainConfig.partConfigs[i].recursive = mainConfig.partConfigs[i].recursive || recursive;
+        if(monitorDirectory(mainConfig.partConfigs[i]) < 0){
             perror("Error encountered in monitorDirectory");
         }
         freeDirConfig(mainConfig.partConfigs[i]);

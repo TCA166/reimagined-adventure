@@ -5,6 +5,10 @@ typedef struct dirConfig{
     char* dirName;
     char** whitelist;
     size_t whitelistLen;
+    char* move;
+    bool recursive;
+    bool verbose;
+    bool confirm;
 } dirConfig;
 
 typedef struct config{
@@ -14,6 +18,6 @@ typedef struct config{
 
 config getConfig(char* filename);
 
-int monitorDirectory(dirConfig config, bool recursive, bool verbose, bool confirm);
+int monitorDirectory(dirConfig config);
 
 void freeDirConfig(dirConfig config);
