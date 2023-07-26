@@ -5,3 +5,7 @@ process: process.c
 
 daemon: daemon.c
 	gcc daemon.c -o daemon $(CFLAGS)
+
+clean:
+	rm daemon
+	rm process

@@ -36,6 +36,7 @@ config getConfig(char* filename){
     if(fread(fileContents, 1, fileSize, configFile) != fileSize){
         exit(EXIT_FAILURE);
     }
+    fclose(configFile);
     config result;
     result.len = 0;
     result.partConfigs = NULL;
@@ -71,6 +72,7 @@ config getConfig(char* filename){
         }
         token = strtok(NULL, "\n");
     }
+    free(fileContents);
     result.partConfigs = realloc(result.partConfigs, (result.len + 1) * sizeof(struct dirConfig));
     result.partConfigs[result.len] = part;
     result.len++;
@@ -119,7 +121,6 @@ int monitorDirectory(dirConfig config, bool recursive, bool verbose, bool confir
             if(mime == NULL){
                 return -1;
             }
-            magic_close(magic);
             bool found = false;
             for(int i = 0; i < config.whitelistLen; i++){
                 if(strcmp(mime, config.whitelist[i]) == 0 || strcmp(entityFilename, config.whitelist[i]) == 0 || strcmp(entity->d_name, config.whitelist[i]) == 0){
@@ -139,6 +140,7 @@ int monitorDirectory(dirConfig config, bool recursive, bool verbose, bool confir
                 }
                 deleted++;
             }
+            magic_close(magic);
         }
         else if(entity->d_type == DT_DIR && recursive){ //We are looking at a directory
             dirConfig subConfig = config;
@@ -147,7 +149,9 @@ int monitorDirectory(dirConfig config, bool recursive, bool verbose, bool confir
                 return -1;
             }
         }
+        free(entityFilename);
     }
+    free((char*)dirFilename);
     closedir(directory);
     return deleted;
 }
@@ -182,6 +186,12 @@ int main(int argc, char** argv){
         if(monitorDirectory(mainConfig.partConfigs[i], recursive, verbose, confirmMode) < 0){
             perror("Error encountered in monitorDirectory");
         }
+        free(mainConfig.partConfigs[i].dirName);
+        for(int n = 0; n < mainConfig.partConfigs[i].whitelistLen; n++){
+            free(mainConfig.partConfigs[i].whitelist[n]);
+        }
+        free(mainConfig.partConfigs[i].whitelist);
     } 
+    free(mainConfig.partConfigs);
     return 0;
 }
