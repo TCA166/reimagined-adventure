@@ -59,12 +59,37 @@ int main(int argc, char** argv){
         exit(EXIT_FAILURE);
     }
     configPath = argv[1];
-    if (access(configPath, F_OK) != 0) {
+    if(access(configPath, F_OK) != 0) {
         fprintf(stderr, "Config file couldn't be accessed\n");
         exit(EXIT_FAILURE);
     }
+    bool verbose = false;
+    bool recursive = false;
+    char log = LOG_DAEMON;
+    for(int i = 2; i < argc; i++){
+        if(strcmp(argv[i], "-v") == 0){
+            verbose = true;
+        }
+        else if(strcmp(argv[i], "-r") == 0){
+            recursive = true;
+        }
+        else if(strcmp(argv[i], "-l") == 0){
+            if(argc <= i + 1){
+                fprintf(stderr, "No argument following -l");
+                exit(EXIT_FAILURE);
+            }
+            char l = argv[i + 1][0] - '0';
+            if(l > 7 || l < 0){
+                fprintf(stderr, "Invalid log number");
+                exit(EXIT_FAILURE);
+            }
+            log = (l + 16) << 3; //we emulate the LOG_LOCAL macros
+        }
+    }
     //Get the initial config, we are doing it here to notify the user of any problems in the config
     curConfig = getConfig(configPath);
+    curConfig->recursive |= recursive;
+    curConfig->verbose |= verbose;
     pid_t pid; //our process deamon
     if((pid = fork()) > 0){ //parent process
         printf("Child process created\n");
@@ -98,7 +123,7 @@ int main(int argc, char** argv){
                 close (x);
             }
             //Initialise log
-            openlog(daemonName, LOG_PID, LOG_DAEMON);
+            openlog(daemonName, LOG_PID, log);
             syslog(LOG_NOTICE, "Activating...");
             //first we need to setup inotify events
             inotifyFD = inotify_init();
@@ -116,7 +141,7 @@ int main(int argc, char** argv){
             signal(SIGRCONFIG, handleSIGRCONFIG); //handle the reload config signal
             //before we enter the main loop of daemon let's do what process does and clean up
             for(int i = 0; i < curConfig->len; i++){
-                if(monitorDirectory(curConfig->partConfigs + i, false) < 0){
+                if(monitorDirectory(curConfig->partConfigs + i, false, curConfig->recursive, curConfig->verbose, curConfig->move) < 0){
                     logPerror("Error encountered in monitorDirectory during initial sweep.");
                     exit(EXIT_FAILURE);
                 }
@@ -147,7 +172,7 @@ int main(int argc, char** argv){
                                 exit(EXIT_FAILURE);
                             }
                             //Do the main thing
-                            if(monitorDirectory(locConfig, false) < 0){
+                            if(monitorDirectory(locConfig, false, curConfig->recursive, curConfig->verbose, curConfig->move) < 0){
                                 logPerror("Error encountered in monitorDirectory.");
                                 exit(EXIT_FAILURE);
                             }
@@ -230,7 +255,11 @@ struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDire
         //we only pass a one level pointer of curConfig, as such we have to transplant the values
         curConfig->len = newConfig->len;
         free(curConfig->partConfigs);
+        free(curConfig->move);
         curConfig->partConfigs = newConfig->partConfigs;
+        curConfig->move = newConfig->move;
+        curConfig->verbose = newConfig->verbose;
+        curConfig->recursive = newConfig->recursive;
         free(newConfig);
         return wd;
     }

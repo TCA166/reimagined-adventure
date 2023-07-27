@@ -13,6 +13,17 @@
     #include "printOverride.h"
 #endif
 
+//Cannot point to $. After it is done running and returns non NULL token should point to key
+char* getConfigValue(char* token){
+    char* delimit = strchr(token, ':');
+    if(delimit != NULL){
+        *delimit = '\0';
+        char* value = delimit + 1;
+        return value;
+    }
+    return NULL;
+}
+
 config* getConfig(const char* filename){
     FILE* configFile = fopen(filename, "r");
     if(configFile == NULL){
@@ -33,6 +44,9 @@ config* getConfig(const char* filename){
     config result;
     result.len = 0;
     result.partConfigs = NULL;
+    result.move = NULL;
+    result.recursive = false;
+    result.verbose = false;
     dirConfig part;
     part.dirName = NULL;
     part.whitelist = NULL;
@@ -50,10 +64,8 @@ config* getConfig(const char* filename){
             }
             if(*token == '$'){ //we are in a local variable definition line
                 token++;
-                char* delimit = strchr(token, ':');
-                if(delimit != NULL){
-                    *delimit = '\0';
-                    char* value = delimit + 1;
+                char* value = getConfigValue(token);
+                if(value != NULL){
                     if(strcmp(token, "move") == 0){
                         part.move = realpath(value, NULL);
                         if(part.move == NULL){
@@ -76,6 +88,23 @@ config* getConfig(const char* filename){
                 part.whitelistLen++;
             }
         }
+        else if(token[0] == '$'){
+            token++;
+            char* value = getConfigValue(token);
+            if(strcmp(token, "move") == 0){
+                result.move = realpath(value, NULL);
+                if(result.move == NULL){
+                    perror("Invalid path provided to move");
+                    exit(EXIT_FAILURE);
+                }
+            }
+            else if(strcmp(token, "recursive") == 0){
+                result.recursive = strcmp(value, "true") == 0;
+            }
+            else if(strcmp(token, "verbose") == 0){
+                result.verbose = strcmp(value, "true") == 0;
+            }
+        }
         else{ //we are in dir def line
             if(part.dirName != NULL){
                 //append the part to the result
@@ -87,6 +116,8 @@ config* getConfig(const char* filename){
                 part.whitelist = NULL;
                 part.whitelistLen = 0;
                 part.move = NULL;
+                part.recursive = false;
+                part.verbose = false;
             }
             part.dirName = malloc(strlen(token) + 1);
             strcpy(part.dirName, token);
@@ -124,7 +155,7 @@ bool userConfirm(const char* filename){
     }
 }
 
-int monitorDirectory(dirConfig* config, bool confirm){
+int monitorDirectory(dirConfig* config, bool confirm, bool recursive, bool verbose, char* move){
     const char* dirFilename = realpath(config->dirName, NULL);
     if(dirFilename == NULL){
         return -1;
@@ -154,19 +185,26 @@ int monitorDirectory(dirConfig* config, bool confirm){
             for(int i = 0; i < config->whitelistLen; i++){
                 if(strcmp(mime, config->whitelist[i]) == 0 || strcmp(entityFilename, config->whitelist[i]) == 0 || strcmp(entity->d_name, config->whitelist[i]) == 0){
                     found = true;
-                    if(config->verbose){
+                    if(config->verbose || verbose){
                         printf("Skipping %s because it is whitelisted\n", entity->d_name);
                     }
                     break;
                 }
             }
             if(!found && (!confirm || userConfirm(entityFilename))){
-                if(config->move != NULL){
-                    char* newFilename = join(config->move, entity->d_name, "/");
+                if(config->move != NULL || move != NULL){
+                    char* movePath = NULL;
+                    if(config->move != NULL){
+                        movePath = config->move;
+                    }
+                    else{
+                        movePath = move;
+                    }
+                    char* newFilename = join(movePath, entity->d_name, "/");
                     if(rename(entityFilename, newFilename) < 0){
                         return -1;
                     }
-                    if(config->verbose){
+                    if(config->verbose || verbose){
                         printf("Moved %s to %s because it wasn't whitelisted\n", entityFilename, newFilename);
                     }
                     free(newFilename);
@@ -175,7 +213,7 @@ int monitorDirectory(dirConfig* config, bool confirm){
                     if(remove(entityFilename) != 0){
                         return -1;
                     }
-                    if(config->verbose){
+                    if(config->verbose || verbose){
                         printf("Removed %s because it wasn't whitelisted\n", entity->d_name);
                     }
                 }
@@ -183,11 +221,11 @@ int monitorDirectory(dirConfig* config, bool confirm){
             }
             magic_close(magic);
         }
-        else if(entity->d_type == DT_DIR && (config->recursive || config->recursive)){ //We are looking at a directory
+        else if(entity->d_type == DT_DIR && (config->recursive || recursive)){ //We are looking at a directory
             dirConfig* subConfig = malloc(sizeof(dirConfig));
             memcpy(subConfig, config, sizeof(dirConfig));
             subConfig->dirName = entityFilename;
-            if(monitorDirectory(subConfig, confirm) < 0){
+            if(monitorDirectory(subConfig, confirm, recursive, verbose, move) < 0){
                 return -1;
             }
             free(subConfig);

@@ -7,7 +7,7 @@ C UNIX programs for controlling file types in directory
 The program version will delete every file that isn't whitelisted in the config file once and then shut off.
 
 ```Bash
-./process <path to config> <args>
+./process <path to config> ...
 ```
 
 Process supports 3 additional optional arguments:
@@ -24,12 +24,22 @@ The daemon program will create a new daemon process called "directory monitor" t
 Should a new file be added to a monitored directory, the directory-monitor will scan the directory where a change was detected and act accordingly.
 
 ```Bash
-./daemon <path to config file>
+./daemon <path to config file> ...
 ```
+
+Daemon supports three additional arguments:
+
+- -r:recursive override that will force the daemon to act recursively globally
+- -v:verbose override
+- -l $level:will redirect the syslog output of daemon to syslog local facility with the given number (LOG_LOCAL0 etc).
+    Can be used to redirect the log to file when combined with a custom [syslog.conf](https://linux.die.net/man/5/syslog.conf).
+    By default the daemon uses the LOG_DAEMON facility.
 
 The daemon uses the syslog to notify the user of it's status.
 After each received set of event from inotify the daemon will reload it's config, so feel free to modify the config freely.
 Apart from the config reloading itself, a SIGUSR1 signal to the daemon will force an immediate reload.
+By default the daemon logs when it activates, shutdowns gracefully (detects the config is missing), is terminated or crashes due to an error.
+With the verbose flag the individual actions are also logged.
 
 ## Config file
 
@@ -48,9 +58,8 @@ You can find what MIME type a file has by using this command:
 file --mime-type <filename>
 ```
 
-Variable lines function similarly to whitelist lines.
-They also start with \t or a number of spaces.
-However that must be followed by $ and a variable name.
+Variable lines set the variable for the current scope.
+The scope is determined with indentation just like whitelist lines.
 So far only 4 variables are supported.
 
 1. recursive
@@ -61,10 +70,13 @@ Following the variable name a : followed by a value must be provided.
 Here's an example config file:
 
 ```config
-./test
-    $move:./moveTo
+$move:./moved
+./onlyText
+    $move:./nonText
     $recursive:true
     $verbose:true
-    ignore
     text/plain
+./onlyMusic
+    audio/mpeg
+    alsoThisOGG.ogg
 ```
