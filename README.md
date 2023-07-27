@@ -1,6 +1,6 @@
 # reimagined-adventure
 
-C UNIX program for controlling file types in directory
+C UNIX programs for controlling file types in directory
 
 ## Program
 
@@ -16,13 +16,20 @@ Process supports 3 additional optional arguments:
 - -v: the verbose flag will make the process notify the user of it's actions
 - -c: the confirm flag will make the process check with the user on the deletions (Very useful for debugging config files)
 
+Ideally you use this utility to setup the daemon yourself using built in UNIX tools for that like cron.
+
 ## Daemon
 
-The daemon program will create a new daemon process that will monitor directories in config, and when a new file is added clean the directory of non compliant with config files.
+The daemon program will create a new daemon process called "directory monitor" that will monitor directories in config using the inotify API.
+Should a new file be added to a monitored directory, the directory-monitor will scan the directory where a change was detected and act accordingly.
 
 ```Bash
 ./daemon <path to config file>
 ```
+
+The daemon uses the syslog to notify the user of it's status.
+After each received set of event from inotify the daemon will reload it's config, so feel free to modify the config freely.
+Apart from the config reloading itself, a SIGUSR1 signal to the daemon will force an immediate reload.
 
 ## Config file
 
@@ -48,8 +55,7 @@ So far only 4 variables are supported.
 
 1. recursive
 2. verbose
-3. confirm
-4. move: if provided, the files in this directory won't be deleted, instead moved to the provided path.
+3. move: if provided, the files in this directory won't be deleted, instead moved to the provided path.
 
 Following the variable name a : followed by a value must be provided.
 Here's an example config file:
@@ -58,6 +64,7 @@ Here's an example config file:
 ./test
     $move:./moveTo
     $recursive:true
+    $verbose:true
     ignore
     text/plain
 ```

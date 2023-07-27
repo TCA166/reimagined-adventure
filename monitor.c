@@ -8,7 +8,12 @@
 #include <magic.h>
 #include <errno.h>
 
-config getConfig(char* filename){
+//If compiling with -DDAEMON monitor will be compiled for printing to syslog
+#ifdef DAEMON
+    #include "printOverride.h"
+#endif
+
+config* getConfig(const char* filename){
     FILE* configFile = fopen(filename, "r");
     if(configFile == NULL){
         exit(EXIT_FAILURE);
@@ -33,14 +38,17 @@ config getConfig(char* filename){
     part.whitelist = NULL;
     part.whitelistLen = 0;
     part.move = NULL;
+    part.recursive = false;
+    part.verbose = false;
     char* token = strtok(fileContents, "\n");
     while(token != NULL){
         if(token[0] == '\t' || token[0] == ' '){ //we are in local line
             token++;
-            while(*token == ' '){
+            //and now we skip forward all tabs and spaces
+            while(*token == ' ' || *token == '\t'){
                 token++;
             }
-            if(*token == '$'){ //we are in variable definition line
+            if(*token == '$'){ //we are in a local variable definition line
                 token++;
                 char* delimit = strchr(token, ':');
                 if(delimit != NULL){
@@ -48,15 +56,16 @@ config getConfig(char* filename){
                     char* value = delimit + 1;
                     if(strcmp(token, "move") == 0){
                         part.move = realpath(value, NULL);
+                        if(part.move == NULL){
+                            perror("Invalid path provided to move");
+                            exit(EXIT_FAILURE);
+                        }
                     }
                     else if(strcmp(token, "recursive") == 0){
                         part.recursive = strcmp(value, "true") == 0;
                     }
                     else if(strcmp(token, "verbose") == 0){
                         part.verbose = strcmp(value, "true") == 0;
-                    }
-                    else if(strcmp(token, "confirm") == 0){
-                        part.confirm = strcmp(value, "true") == 0;
                     }
                 }
             }
@@ -88,7 +97,9 @@ config getConfig(char* filename){
     result.partConfigs = realloc(result.partConfigs, (result.len + 1) * sizeof(struct dirConfig));
     result.partConfigs[result.len] = part;
     result.len++;
-    return result;
+    config* resultPtr = malloc(sizeof(config));
+    *resultPtr = result;
+    return resultPtr;
 }
 
 char* join(const char* a, const char* b, const char* delimit){
@@ -113,8 +124,8 @@ bool userConfirm(const char* filename){
     }
 }
 
-int monitorDirectory(dirConfig config){
-    const char* dirFilename = realpath(config.dirName, NULL);
+int monitorDirectory(dirConfig* config, bool confirm){
+    const char* dirFilename = realpath(config->dirName, NULL);
     if(dirFilename == NULL){
         return -1;
     }
@@ -139,22 +150,22 @@ int monitorDirectory(dirConfig config){
                 return -1;
             }
             bool found = false;
-            for(int i = 0; i < config.whitelistLen; i++){
-                if(strcmp(mime, config.whitelist[i]) == 0 || strcmp(entityFilename, config.whitelist[i]) == 0 || strcmp(entity->d_name, config.whitelist[i]) == 0){
+            for(int i = 0; i < config->whitelistLen; i++){
+                if(strcmp(mime, config->whitelist[i]) == 0 || strcmp(entityFilename, config->whitelist[i]) == 0 || strcmp(entity->d_name, config->whitelist[i]) == 0){
                     found = true;
-                    if(config.verbose){
+                    if(config->verbose){
                         printf("Skipping %s because it is whitelisted\n", entity->d_name);
                     }
                     break;
                 }
             }
-            if(!found && (!config.confirm || userConfirm(entityFilename))){
-                if(config.move != NULL){
-                    char* newFilename = join(config.move, entity->d_name, "/");
+            if(!found && (!confirm || userConfirm(entityFilename))){
+                if(config->move != NULL){
+                    char* newFilename = join(config->move, entity->d_name, "/");
                     if(rename(entityFilename, newFilename) < 0){
                         return -1;
                     }
-                    if(config.verbose){
+                    if(config->verbose){
                         printf("Moved %s to %s because it wasn't whitelisted\n", entityFilename, newFilename);
                     }
                     free(newFilename);
@@ -163,7 +174,7 @@ int monitorDirectory(dirConfig config){
                     if(remove(entityFilename) != 0){
                         return -1;
                     }
-                    if(config.verbose){
+                    if(config->verbose){
                         printf("Removed %s because it wasn't whitelisted\n", entity->d_name);
                     }
                 }
@@ -171,12 +182,14 @@ int monitorDirectory(dirConfig config){
             }
             magic_close(magic);
         }
-        else if(entity->d_type == DT_DIR && (config.recursive || config.recursive)){ //We are looking at a directory
-            dirConfig subConfig = config;
-            subConfig.dirName = entityFilename;
-            if(monitorDirectory(subConfig) < 0){
+        else if(entity->d_type == DT_DIR && (config->recursive || config->recursive)){ //We are looking at a directory
+            dirConfig* subConfig = malloc(sizeof(dirConfig));
+            memcpy(subConfig, config, sizeof(dirConfig));
+            subConfig->dirName = entityFilename;
+            if(monitorDirectory(subConfig, confirm) < 0){
                 return -1;
             }
+            free(subConfig);
         }
         free(entityFilename);
     }
@@ -185,10 +198,10 @@ int monitorDirectory(dirConfig config){
     return deleted;
 }
 
-void freeDirConfig(dirConfig config){
-    free(config.dirName);
-    for(int n = 0; n < config.whitelistLen; n++){
-        free(config.whitelist[n]);
+void freeDirConfig(dirConfig* config){
+    free(config->dirName);
+    for(int n = 0; n < config->whitelistLen; n++){
+        free(config->whitelist[n]);
     }
-    free(config.whitelist);
+    free(config->whitelist);
 }

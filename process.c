@@ -30,17 +30,17 @@ int main(int argc, char** argv){
             recursive = true;
         }
     }
-    config mainConfig = getConfig(configPath);
+    config* mainConfig = getConfig(configPath);
     printf("Config loaded\n");  
-    for(int i = 0; i < mainConfig.len; i++){
-        mainConfig.partConfigs[i].confirm = mainConfig.partConfigs[i].confirm || confirmMode;
-        mainConfig.partConfigs[i].verbose = mainConfig.partConfigs[i].verbose || verbose;
-        mainConfig.partConfigs[i].recursive = mainConfig.partConfigs[i].recursive || recursive;
-        if(monitorDirectory(mainConfig.partConfigs[i]) < 0){
+    for(int i = 0; i < mainConfig->len; i++){
+        mainConfig->partConfigs[i].verbose |= verbose;
+        mainConfig->partConfigs[i].recursive |= recursive;
+        if(monitorDirectory(mainConfig->partConfigs + i, confirmMode) < 0){
             perror("Error encountered in monitorDirectory");
         }
-        freeDirConfig(mainConfig.partConfigs[i]);
+        freeDirConfig(mainConfig->partConfigs + i);
     } 
-    free(mainConfig.partConfigs);
+    free(mainConfig->partConfigs);
+    free(mainConfig);
     return 0;
 }

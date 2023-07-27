@@ -6,7 +6,8 @@ monitor.o: monitor.c
 process: process.c monitor.o
 	gcc process.c monitor.o -o process $(CFLAGS) -lmagic
 
-daemon: daemon.c monitor.o
+daemon: daemon.c monitor.c
+	gcc monitor.c -c -o monitor.o $(CFLAGS) -DDAEMON
 	gcc daemon.c monitor.o -o daemon $(CFLAGS) -lmagic
 
 clean:

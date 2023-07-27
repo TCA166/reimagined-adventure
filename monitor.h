@@ -8,7 +8,6 @@ typedef struct dirConfig{
     char* move;
     bool recursive;
     bool verbose;
-    bool confirm;
 } dirConfig;
 
 typedef struct config{
@@ -16,8 +15,8 @@ typedef struct config{
     size_t len;
 } config;
 
-config getConfig(char* filename);
+config* getConfig(const char* filename);
 
-int monitorDirectory(dirConfig config);
+int monitorDirectory(dirConfig* config, bool confirm);
 
-void freeDirConfig(dirConfig config);
+void freeDirConfig(dirConfig* config);
