@@ -23,6 +23,8 @@
 #define EVENT_SIZE ( sizeof (struct inotify_event) )
 #define EVENT_BUF_LEN ( 1024 * ( EVENT_SIZE + 16 ) )
 
+#define logPerror(msg) syslog(LOG_ERR, msg " %s", strerror(errno))
+
 //Struct that ties together event descriptors with configs
 struct watchedDirectory{
     int ed;
@@ -39,14 +41,17 @@ void rmEvents(struct watchedDirectory* wd, size_t len, int fd);
 
 struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDirectory* wd, config* curConfig, int inotifyFD);
 
-//Signal handler
+//Signal handlers
+
 void handleSIGRCONFIG(int sig);
 
+void handleSIGTERM(int sig);
+
 //global variables
-struct watchedDirectory* wd = NULL;
-config* curConfig;
-const char* configPath;
-int inotifyFD;
+struct watchedDirectory* wd = NULL; //Global array of wd and the associated config
+config* curConfig; //The current global config
+const char* configPath; //The current global configPath
+int inotifyFD; //The current global inotify file descriptor
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -76,6 +81,7 @@ int main(int argc, char** argv){
         }
         signal(SIGCHLD, SIG_IGN);
         signal(SIGHUP, SIG_IGN);
+        signal(SIGTERM, handleSIGTERM);
         if((pid == fork()) > 0){
             exit(EXIT_SUCCESS);
         }
@@ -97,28 +103,35 @@ int main(int argc, char** argv){
             //first we need to setup inotify events
             inotifyFD = inotify_init();
             if(inotifyFD < 0){
-                syslog(LOG_ERR, "Couldn't initialise inotify");
+                logPerror("Couldn't initialise inotify");
                 exit(EXIT_FAILURE);
             }
             //use initEvents to create the array
             wd = initEvents(curConfig, inotifyFD);
             if(wd == NULL){
-                syslog(LOG_ERR, "Couldn't initialize events");
+                logPerror("Couldn't initialize events");
                 exit(EXIT_FAILURE);
             }
             //We do this here in order to assure all variables have set values
             signal(SIGRCONFIG, handleSIGRCONFIG); //handle the reload config signal
+            //before we enter the main loop of daemon let's do what process does and clean up
+            for(int i = 0; i < curConfig->len; i++){
+                if(monitorDirectory(curConfig->partConfigs + i, false) < 0){
+                    logPerror("Error encountered in monitorDirectory during initial sweep.");
+                    exit(EXIT_FAILURE);
+                }
+            }
             while(true){ //Main daemon function
                 unsigned char inotifyBuffer[EVENT_BUF_LEN];
                 //will wait here until events come
                 int length = read(inotifyFD, inotifyBuffer, EVENT_BUF_LEN);
                 if(length < 0){
-                    syslog(LOG_ERR, "Couldn't read inotify buffer");
+                    logPerror("Couldn't read inotify buffer");
                     exit(EXIT_FAILURE);
                 }
                 int i = 0;
                 while(i < length){ //receive all events
-                    struct inotify_event *event = (struct inotify_event*)&inotifyBuffer[ i ];
+                    struct inotify_event *event = (struct inotify_event*)&inotifyBuffer[i];
                     if (event->len){
                         if((event->mask & (IN_CREATE | IN_MOVE)) && !(event->mask & IN_ISDIR) && event->wd >= 0){
                             //if we are looking at the correct event type
@@ -130,12 +143,13 @@ int main(int argc, char** argv){
                             }
                             //if we didnt find anything then error
                             if(locConfig == NULL){
-                                syslog(LOG_ERR, "Invalid event recieved %s", event->name);
+                                syslog(LOG_ERR, "Invalid event recieved %d:%s", event->wd, event->name);
                                 exit(EXIT_FAILURE);
                             }
                             //Do the main thing
                             if(monitorDirectory(locConfig, false) < 0){
-                                syslog(LOG_ERR, "Error encountered in monitorDirectory");
+                                logPerror("Error encountered in monitorDirectory.");
+                                exit(EXIT_FAILURE);
                             }
                         }
                     }
@@ -150,7 +164,7 @@ int main(int argc, char** argv){
             rmEvents(wd, curConfig->len, inotifyFD);
             close(inotifyFD);
             free(curConfig);
-            syslog (LOG_NOTICE, "Terminating peacefully...");
+            syslog(LOG_NOTICE, "Terminating peacefully...");
             closelog();
             exit(EXIT_SUCCESS);
         }
@@ -164,8 +178,7 @@ struct watchedDirectory* initEvents(config* curConfig, int fd){
     for(int i = 0; i < curConfig->len; i++){
         wd[i].ed = inotify_add_watch(fd, curConfig->partConfigs[i].dirName, IN_CREATE);
         if(wd[i].ed < 0){
-            syslog(LOG_ERR, "Couldn't initialise inotify event for %s", curConfig->partConfigs[i].dirName);
-            exit(EXIT_FAILURE);
+            return NULL;
         }
         wd[i].config = curConfig->partConfigs + i;
     }
@@ -173,6 +186,9 @@ struct watchedDirectory* initEvents(config* curConfig, int fd){
 }
 
 void rmEvents(struct watchedDirectory* wd, size_t len, int fd){
+    if(wd == NULL){
+        return;
+    }
     for(int i = 0; i < len; i++){
         inotify_rm_watch(fd, wd[i].ed);
         close(wd[i].ed);
@@ -191,15 +207,17 @@ struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDire
         //Possible source of slowdown, look into doing this only N iterations?
         size_t oldSize = curConfig->len;
         struct watchedDirectory* oldWd = wd;
-        curConfig = getConfig(configPath);
-        wd = initEvents(curConfig, inotifyFD);
+        config* newConfig = getConfig(configPath);
+        wd = initEvents(newConfig, inotifyFD);
         //if a part config in old config isn't in new one then close that watch event
         for(int i = 0; i < oldSize; i++){
             bool found = false;
-            for(int n = 0; n < curConfig->len; n++){
-                found = strcmp(oldWd[i].config->dirName, wd[i].config->dirName) == 0;
-                if(found){
-                    break;
+            for(int n = 0; n < newConfig->len; n++){
+                if(wd[i].config != NULL){ //realistically speaking won't happen, but the compiler thinks so
+                    found = strcmp(oldWd[i].config->dirName, wd[i].config->dirName) == 0;
+                    if(found){
+                        break;
+                    }
                 }
             }
             if(!found){
@@ -209,11 +227,16 @@ struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDire
             freeDirConfig(oldWd[i].config);
         }
         free(oldWd);
+        //we only pass a one level pointer of curConfig, as such we have to transplant the values
+        curConfig->len = newConfig->len;
+        free(curConfig->partConfigs);
+        curConfig->partConfigs = newConfig->partConfigs;
+        free(newConfig);
         return wd;
     }
 }
 
-//I could use goto, and avoid using global variables, but I don't think that's a good idea, though possibly beneficial to performance
+//I could use longjmp, and avoid using global variables, but I don't think that's a good idea, though possibly beneficial to performance
 void handleSIGRCONFIG(int sig){
     if(sig == SIGRCONFIG && curConfig != NULL && wd != NULL){
         syslog(LOG_NOTICE, "Received SIGRCONFIG signal, reloading config now...");
@@ -221,5 +244,12 @@ void handleSIGRCONFIG(int sig){
             syslog(LOG_NOTICE, "Detected config removal.");
             exit(EXIT_SUCCESS);
         }
+    }
+}
+
+void handleSIGTERM(int sig){
+    if(sig == SIGTERM){
+        syslog(LOG_NOTICE, "Received SIGTERM, shutting down as requested.");
+        exit(EXIT_SUCCESS);
     }
 }

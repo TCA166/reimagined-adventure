@@ -134,6 +134,7 @@ int monitorDirectory(dirConfig* config, bool confirm){
     }
     DIR* directory = opendir(dirFilename);
     if(directory == NULL){
+        //errno is set by opendir
         return -1;
     }
     int deleted = 0;
