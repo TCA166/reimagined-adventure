@@ -149,7 +149,9 @@ bool userConfirm(const char* filename){
     while(true){
         printf("Are you sure you want to remove %s?(y/n)", filename);
         char input = '\0';
-        scanf("%c", &input);
+        if(scanf("%c", &input) == EOF){
+            return false;
+        }
         if(input == 'y'){
             return true;
         }

@@ -14,3 +14,13 @@ clean:
 	rm daemon
 	rm process
 	rm *.o
+
+deb: CFLAGS := -O3
+deb: all
+	mkdir -p deb/bin
+	mkdir -p deb/etc/systemd/system
+	mv process ./deb/bin/directory-monitor-process
+	mv daemon ./deb/bin/directory-monitor-daemon
+	cp directory-monitor.service ./deb/etc/systemd/system
+	dpkg-deb --build --root-owner-group deb
+	mv deb.deb directory-monitor_0.1_x86.deb

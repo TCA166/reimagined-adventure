@@ -96,6 +96,9 @@ int main(int argc, char** argv){
         perror("Error encountered in getConfig");
         exit(EXIT_FAILURE);
     }
+    if(curConfig->len == 0){
+        printf("Empty config file.");
+    }
     curConfig->recursive |= recursive;
     curConfig->verbose |= verbose;
     pid_t pid; //our process deamon

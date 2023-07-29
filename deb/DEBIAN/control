@@ -1,0 +1,5 @@
+Package: directory-monitor
+Version: 0.1
+Maintainer: TCA
+Architecture: amd64
+Description: Package for process and daemon program from https://github.com/TCA166/reimagined-adventure

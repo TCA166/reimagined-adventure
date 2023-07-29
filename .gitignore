@@ -4,3 +4,6 @@ process
 test*
 *.o
 moveTo
+deb/bin
+deb/etc
+*.deb
