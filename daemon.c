@@ -25,6 +25,10 @@
 
 #define logPerror(msg) syslog(LOG_ERR, msg " %s", strerror(errno))
 
+#define logPerrorArgs(msg, args) syslog(LOG_ERR, msg " %s", args, strerror(errno))
+
+#define pidFileGlobal "/var/run/directory-monitor.pid"
+
 //Struct that ties together event descriptors with configs
 struct watchedDirectory{
     int ed;
@@ -88,6 +92,10 @@ int main(int argc, char** argv){
     }
     //Get the initial config, we are doing it here to notify the user of any problems in the config
     curConfig = getConfig(configPath);
+    if(curConfig == NULL){
+        perror("Error encountered in getConfig");
+        exit(EXIT_FAILURE);
+    }
     curConfig->recursive |= recursive;
     curConfig->verbose |= verbose;
     pid_t pid; //our process deamon
@@ -122,9 +130,25 @@ int main(int argc, char** argv){
             for (int x = sysconf(_SC_OPEN_MAX); x >= 0; x--){
                 close (x);
             }
+            pid = getpid();
             //Initialise log
             openlog(daemonName, LOG_PID, log);
-            syslog(LOG_NOTICE, "Activating...");
+            //Write to pid file
+            {
+                FILE* fPid = fopen(pidFileGlobal, "w");
+                if(fPid == NULL){
+                    logPerror("Couldn't open global pid file.");
+                }
+                else{
+                    char fPidContents[11] = ""; //10 should be enough because INT_MAX is 10 digits long, and a valid pid_t cannot be negative
+                    sprintf(fPidContents, "%d", pid);
+                    if(fwrite(fPidContents, 11, 1, fPid) != 1){
+                        logPerror("Invalid write to pid file.");
+                        exit(EXIT_FAILURE);
+                    }
+                    fclose(fPid);
+                }
+            }
             //first we need to setup inotify events
             inotifyFD = inotify_init();
             if(inotifyFD < 0){
@@ -139,10 +163,12 @@ int main(int argc, char** argv){
             }
             //We do this here in order to assure all variables have set values
             signal(SIGRCONFIG, handleSIGRCONFIG); //handle the reload config signal
+            syslog(LOG_NOTICE, "Activating...");
             //before we enter the main loop of daemon let's do what process does and clean up
             for(int i = 0; i < curConfig->len; i++){
-                if(monitorDirectory(curConfig->partConfigs + i, false, curConfig->recursive, curConfig->verbose, curConfig->move) < 0){
-                    logPerror("Error encountered in monitorDirectory during initial sweep.");
+                int res = 0;
+                if((res = monitorDirectory(curConfig->partConfigs + i, false, curConfig->recursive, curConfig->verbose, curConfig->move)) < 0){
+                    logPerrorArgs("Error encountered in monitorDirectory during initial sweep at %d", res);
                     exit(EXIT_FAILURE);
                 }
             }
@@ -172,17 +198,27 @@ int main(int argc, char** argv){
                                 exit(EXIT_FAILURE);
                             }
                             //Do the main thing
-                            if(monitorDirectory(locConfig, false, curConfig->recursive, curConfig->verbose, curConfig->move) < 0){
-                                logPerror("Error encountered in monitorDirectory.");
-                                exit(EXIT_FAILURE);
+                            {
+                                int res = 0;
+                                if((res = monitorDirectory(locConfig, false, curConfig->recursive, curConfig->verbose, curConfig->move)) < 0){
+                                    logPerrorArgs("Error encountered in monitorDirectory at %d.", res);
+                                    exit(EXIT_FAILURE);
+                                }
                             }
+                            
                         }
                     }
                     i += EVENT_SIZE + event->len;
                 }
                 if((wd = reloadConfig(configPath, wd, curConfig, inotifyFD)) == NULL){
-                    syslog(LOG_NOTICE, "Detected config removal.");
-                    break;
+                    if(errno == 0){
+                        syslog(LOG_NOTICE, "Detected config removal.");
+                        break;
+                    }
+                    else{
+                        logPerror("Error while reloading the config");
+                        exit(EXIT_FAILURE);
+                    }
                 }
             }
             //free everything and exit
@@ -224,7 +260,8 @@ void rmEvents(struct watchedDirectory* wd, size_t len, int fd){
 
 struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDirectory* wd, config* curConfig, int inotifyFD){
     //Update config or crash before going to sleep again
-    if (access(configPath, F_OK) != 0) {
+    if(access(configPath, F_OK) != 0){
+        errno = 0; //reset errno because we want to indicate this was expected
         return NULL;
     }
     else{
@@ -233,6 +270,9 @@ struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDire
         size_t oldSize = curConfig->len;
         struct watchedDirectory* oldWd = wd;
         config* newConfig = getConfig(configPath);
+        if(newConfig == NULL){
+            return NULL;
+        }
         wd = initEvents(newConfig, inotifyFD);
         //if a part config in old config isn't in new one then close that watch event
         for(int i = 0; i < oldSize; i++){

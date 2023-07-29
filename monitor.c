@@ -56,6 +56,10 @@ config* getConfig(const char* filename){
     part.verbose = false;
     char* token = strtok(fileContents, "\n");
     while(token != NULL){
+        char* com = strchr(token, '#');
+        if(com != NULL){ //ignore comments
+            *com = '\0';
+        }
         if(token[0] == '\t' || token[0] == ' '){ //we are in local line
             token++;
             //and now we skip forward all tabs and spaces
@@ -69,8 +73,7 @@ config* getConfig(const char* filename){
                     if(strcmp(token, "move") == 0){
                         part.move = realpath(value, NULL);
                         if(part.move == NULL){
-                            perror("Invalid path provided to move");
-                            exit(EXIT_FAILURE);
+                            return NULL;
                         }
                     }
                     else if(strcmp(token, "recursive") == 0){
@@ -94,8 +97,7 @@ config* getConfig(const char* filename){
             if(strcmp(token, "move") == 0){
                 result.move = realpath(value, NULL);
                 if(result.move == NULL){
-                    perror("Invalid path provided to move");
-                    exit(EXIT_FAILURE);
+                    return NULL;
                 }
             }
             else if(strcmp(token, "recursive") == 0){
@@ -105,7 +107,7 @@ config* getConfig(const char* filename){
                 result.verbose = strcmp(value, "true") == 0;
             }
         }
-        else{ //we are in dir def line
+        else if(token[0] != '#'){ //we are in dir def line
             if(part.dirName != NULL){
                 //append the part to the result
                 result.partConfigs = realloc(result.partConfigs, (result.len + 1) * sizeof(struct dirConfig));
@@ -119,8 +121,10 @@ config* getConfig(const char* filename){
                 part.recursive = false;
                 part.verbose = false;
             }
-            part.dirName = malloc(strlen(token) + 1);
-            strcpy(part.dirName, token);
+            part.dirName = realpath(token, NULL);
+            if(part.dirName == NULL){
+                return NULL;
+            }
         }
         token = strtok(NULL, "\n");
     }
@@ -156,13 +160,7 @@ bool userConfirm(const char* filename){
 }
 
 int monitorDirectory(dirConfig* config, bool confirm, bool recursive, bool verbose, char* move){
-    const char* dirFilename = realpath(config->dirName, NULL);
-    if(dirFilename == NULL){
-        return -1;
-    }
-    else{
-        errno = 0;
-    }
+    const char* dirFilename = config->dirName;
     DIR* directory = opendir(dirFilename);
     if(directory == NULL){
         //errno is set by opendir
@@ -175,11 +173,11 @@ int monitorDirectory(dirConfig* config, bool confirm, bool recursive, bool verbo
         if(entity->d_type == DT_REG){ //We are looking at a file
             magic_t magic = magic_open(MAGIC_MIME_TYPE);
             if(magic_load(magic, NULL) < 0){
-                return -1;
+                return -2;
             }
             const char* mime = magic_file(magic, (const char*)entityFilename);
             if(mime == NULL){
-                return -1;
+                return -3;
             }
             bool found = false;
             for(int i = 0; i < config->whitelistLen; i++){
@@ -202,7 +200,7 @@ int monitorDirectory(dirConfig* config, bool confirm, bool recursive, bool verbo
                     }
                     char* newFilename = join(movePath, entity->d_name, "/");
                     if(rename(entityFilename, newFilename) < 0){
-                        return -1;
+                        return -4;
                     }
                     if(config->verbose || verbose){
                         printf("Moved %s to %s because it wasn't whitelisted\n", entityFilename, newFilename);
@@ -211,7 +209,7 @@ int monitorDirectory(dirConfig* config, bool confirm, bool recursive, bool verbo
                 }
                 else{
                     if(remove(entityFilename) != 0){
-                        return -1;
+                        return -5;
                     }
                     if(config->verbose || verbose){
                         printf("Removed %s because it wasn't whitelisted\n", entity->d_name);
@@ -221,18 +219,19 @@ int monitorDirectory(dirConfig* config, bool confirm, bool recursive, bool verbo
             }
             magic_close(magic);
         }
-        else if(entity->d_type == DT_DIR && (config->recursive || recursive)){ //We are looking at a directory
+        //for whatever reason .. and . aren't symlinks, but regular directories? IDK why
+        else if(entity->d_type == DT_DIR  && (config->recursive || recursive) && !(strcmp(entity->d_name, "..") == 0 || strcmp(entity->d_name, ".") == 0)){ 
+            //We are looking at a directory
             dirConfig* subConfig = malloc(sizeof(dirConfig));
             memcpy(subConfig, config, sizeof(dirConfig));
             subConfig->dirName = entityFilename;
             if(monitorDirectory(subConfig, confirm, recursive, verbose, move) < 0){
-                return -1;
+                return -6;
             }
             free(subConfig);
         }
         free(entityFilename);
     }
-    free((char*)dirFilename);
     closedir(directory);
     return deleted;
 }

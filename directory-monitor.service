@@ -1,0 +1,10 @@
+[Unit]
+Description=Directory monitor for file type control in directories
+Documentation=https://github.com/TCA166/reimagined-adventure/blob/main/README.md
+Wants=rsyslog
+[Service]
+Type=forking
+PIDFile=/var/run/directory-monitor.pid
+ExecStart=/bin/directory-monitor /etc/directory-monitor.conf
+ExecStop=/bin/kill -SIGTERM $MAINPID
+ExecReload=/bin/kill -SIGUSR1 $MAINPID

@@ -60,7 +60,7 @@ file --mime-type <filename>
 
 Variable lines set the variable for the current scope.
 The scope is determined with indentation just like whitelist lines.
-So far only 4 variables are supported.
+So far only 3 variables are supported.
 
 1. recursive
 2. verbose

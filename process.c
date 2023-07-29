@@ -31,6 +31,10 @@ int main(int argc, char** argv){
         }
     }
     config* mainConfig = getConfig(configPath);
+    if(mainConfig == NULL){
+        perror("Error encountered in getConfig");
+        exit(EXIT_FAILURE);
+    }
     mainConfig->verbose |= verbose;
     mainConfig->recursive |= recursive;
     printf("Config loaded\n");  
