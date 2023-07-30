@@ -17,10 +17,21 @@ clean:
 
 deb: CFLAGS := -O3
 deb: all
-	mkdir -p deb/bin
-	mkdir -p deb/etc/systemd/system
-	mv process ./deb/bin/directory-monitor-process
-	mv daemon ./deb/bin/directory-monitor-daemon
-	cp directory-monitor.service ./deb/etc/systemd/system
-	dpkg-deb --build --root-owner-group deb
+	mkdir -p packages/deb/bin
+	mkdir -p packages/deb/etc/systemd/system
+	mv process ./packages/deb/bin/directory-monitor-process
+	mv daemon ./packages/deb/bin/directory-monitor-daemon
+	cp directory-monitor.service ./packages/deb/etc/systemd/system
+	dpkg-deb --build --root-owner-group ./packages/deb
 	mv deb.deb directory-monitor_0.1_x86.deb
+
+rpm: CFLAGS := -O3
+rpm: all
+	mkdir -p packages/rpm/SOURCES packages/rpm/BUILD packages/rpm/BUILDROOT packages/rpm/RPMS packages/rpm/SRPMS
+	mkdir directory-monitor-0.0.1
+	mv process directory-monitor-0.0.1/directory-monitor-process
+	mv daemon directory-monitor-0.0.1/directory-monitor-daemon
+	cp directory-monitor.service directory-monitor-0.0.1
+	tar cvzf ./packages/rpm/SOURCES/directory-monitor.tar.gz directory-monitor-0.0.1
+	rm -r directory-monitor-0.0.1
+	rpmbuild --define "_topdir `pwd`/packages/rpm" -bb ./packages/rpm/SPECS/directory-monitor.spec

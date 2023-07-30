@@ -4,6 +4,11 @@ process
 test*
 *.o
 moveTo
-deb/bin
-deb/etc
+packages/deb/bin
+packages/deb/etc
 *.deb
+packages/rpm/BUILD
+packages/rpm/BUILDROOT
+packages/rpm/RPMS
+packages/rpm/SOURCES
+packages/rpm/SRPMS
