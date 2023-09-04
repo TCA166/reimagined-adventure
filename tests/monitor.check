@@ -1,0 +1,32 @@
+#include "../monitor.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <errno.h>
+
+#suite monitorTests
+
+#test invalidConfig1
+    //the file should contain an invalid moteTo directory
+    config* testConfig = getConfigFilename("tests/invalid1.config");
+    ck_assert_msg(testConfig == NULL, "testConfig is NOT NULL");
+    ck_assert_msg(errno == ENOENT, "Wrong errno");
+
+#test invalidConfig2
+    //the file should contain an invalid check directory
+    config* testConfig = getConfigFilename("tests/invalid2.config");
+    ck_assert_msg(testConfig == NULL, "testConfig is NOT NULL");
+    ck_assert_msg(errno == ENOENT, "Wrong errno");
+
+#test configTest1
+    //the file should be valid
+    config* testConfig = getConfigFilename("tests/test1.config");
+    ck_assert_msg(testConfig != NULL, "testConfig is NULL");
+    ck_assert_msg(testConfig->len == 3, "Invalid testConfig size");
+    ck_assert_msg(testConfig->recursive == true, "Invalid global recursive");
+    ck_assert_msg(testConfig->partConfigs[0].recursive == false, "Invalid recursive in config 1");
+    ck_assert_msg(testConfig->partConfigs[0].verbose == false, "Invalid verbose in config 1");
+    ck_assert_msg(testConfig->partConfigs[0].move == NULL, "Invalid move");
+    ck_assert_msg(testConfig->partConfigs[1].recursive == false, "Invalid recursive in config 2");
+    ck_assert_str_ne(testConfig->partConfigs[1].move, testConfig->partConfigs[2].move);
+    

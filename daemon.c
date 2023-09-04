@@ -20,13 +20,14 @@
 //Signal reload config
 #define SIGRCONFIG SIGUSR1
 
-#define EVENT_SIZE ( sizeof (struct inotify_event) )
-#define EVENT_BUF_LEN ( 1024 * ( EVENT_SIZE + 16 ) )
+#define EVENT_SIZE (sizeof(struct inotify_event))
+#define EVENT_BUF_LEN (1024 * (EVENT_SIZE + 16))
 
 #define logPerror(msg) syslog(LOG_ERR, msg " %s", strerror(errno))
 
 #define logPerrorArgs(msg, args) syslog(LOG_ERR, msg " %s", args, strerror(errno))
 
+//The deamon should create this pid file
 #define pidFileGlobal "/var/run/directory-monitor.pid"
 
 //Struct that ties together event descriptors with configs
@@ -37,32 +38,58 @@ struct watchedDirectory{
 
 //Well a hash table h(ed)->config would have been faster, but probably overkill for now. Should we get performance issues though that is something worth looking into
 
-//Initializes an array of watched directories
-struct watchedDirectory* initEvents(config* curConfig, int fd);
+/*!
+ @brief Initializes an array of watched directories based on a config
+ @param curConfig the config that should be used for event initialization
+ @param fd the inotify file descriptor
+ @return an array of of watchedDirectory structs
+*/
+static struct watchedDirectory* initEvents(config* curConfig, int fd);
 
-//Frees everything in wd*, including the alloc'd stuff in configs
-void rmEvents(struct watchedDirectory* wd, size_t len, int fd);
+/*!
+ @brief Frees everything in wd*, including the alloc'd stuff in configs
+ @param wd the array of watched directories to free
+ @param len the length of the array
+ @param fd the inotify file descriptor
+*/
+static void rmEvents(struct watchedDirectory* wd, size_t len, int fd);
 
-struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDirectory* wd, config* curConfig, int inotifyFD);
+/*!
+ @brief Reloads the config
+ @param configPath the path to the config file
+ @param wd the current watchedDirectory array
+ @param curConfig the current loaded config
+ @param inotifyFd the innotify file descriptor
+ @return the value of wd, or NULL on error
+*/
+static struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDirectory* wd, config* curConfig, int inotifyFD);
 
 //Signal handlers
 
-void handleSIGRCONFIG(int sig);
+/*!
+ @brief Handles the config reload signal
+ @param sig the received signal number
+*/
+static void handleSIGRCONFIG(int sig);
 
-void handleSIGTERM(int sig);
+/*!
+ @brief Handles the terminate signal
+ @param sig the received signal number
+*/
+static void handleSIGTERM(int sig);
 
 //global variables
-struct watchedDirectory* wd = NULL; //Global array of wd and the associated config
-config* curConfig; //The current global config
-const char* configPath; //The current global configPath
-int inotifyFD; //The current global inotify file descriptor
+static struct watchedDirectory* wd = NULL; //Global array of wd and the associated config
+static config* curConfig; //The current global config
+static const char* configPath; //The current global configPath
+static int inotifyFD; //The current global inotify file descriptor
 
 int main(int argc, char** argv){
     if(argc < 2){
         fprintf(stderr, "Incorrect number of arguments\n");
         exit(EXIT_FAILURE);
     }
-    configPath = argv[1];
+    configPath = realpath(argv[1], NULL);
     if(access(configPath, F_OK) != 0) {
         fprintf(stderr, "Config file couldn't be accessed\n");
         exit(EXIT_FAILURE);
@@ -91,7 +118,7 @@ int main(int argc, char** argv){
         }
     }
     //Get the initial config, we are doing it here to notify the user of any problems in the config
-    curConfig = getConfig(configPath);
+    curConfig = getConfigFilename(configPath);
     if(curConfig == NULL){
         perror("Error encountered in getConfig");
         exit(EXIT_FAILURE);
@@ -107,12 +134,12 @@ int main(int argc, char** argv){
         exit(EXIT_SUCCESS);
     }
     else if(pid < 0){ //parent process
-        fprintf(stderr, "Error encountered during fork\n");
+        perror("Error encountered during fork\n");
         exit(EXIT_FAILURE);
     }
     else{ //child process
         if(setsid() < 0){
-            fprintf(stderr, "Error encountered during setsid\n");
+            perror("Error encountered during setsid\n");
             exit(EXIT_FAILURE);
         }
         signal(SIGCHLD, SIG_IGN);
@@ -122,16 +149,16 @@ int main(int argc, char** argv){
             exit(EXIT_SUCCESS);
         }
         else if(pid < 0){
-            fprintf(stderr, "Error encountered during fork\n");
+            perror("Error encountered during fork\n");
             exit(EXIT_FAILURE);
         }
         else{ //finally deamon process
             //set the daemon name
             prctl(PR_SET_NAME, daemonName);
             argv[0] = daemonName;
-            //close all file descriptors
+            //close all open file descriptors
             for (int x = sysconf(_SC_OPEN_MAX); x >= 0; x--){
-                close (x);
+                close(x);
             }
             pid = getpid();
             //Initialise log
@@ -213,6 +240,7 @@ int main(int argc, char** argv){
                     }
                     i += EVENT_SIZE + event->len;
                 }
+                //After having worked through all the events we reload the config
                 if((wd = reloadConfig(configPath, wd, curConfig, inotifyFD)) == NULL){
                     if(errno == 0){
                         syslog(LOG_NOTICE, "Detected config removal.");
@@ -234,10 +262,11 @@ int main(int argc, char** argv){
         }
         
     } 
+    free((char*)configPath);
     return 0;
 }
 
-struct watchedDirectory* initEvents(config* curConfig, int fd){
+static struct watchedDirectory* initEvents(config* curConfig, int fd){
     struct watchedDirectory* wd = calloc(curConfig->len, sizeof(struct watchedDirectory));
     for(int i = 0; i < curConfig->len; i++){
         wd[i].ed = inotify_add_watch(fd, curConfig->partConfigs[i].dirName, IN_CREATE);
@@ -249,7 +278,7 @@ struct watchedDirectory* initEvents(config* curConfig, int fd){
     return wd;
 }
 
-void rmEvents(struct watchedDirectory* wd, size_t len, int fd){
+static void rmEvents(struct watchedDirectory* wd, size_t len, int fd){
     if(wd == NULL){
         return;
     }
@@ -261,7 +290,7 @@ void rmEvents(struct watchedDirectory* wd, size_t len, int fd){
     free(wd);
 }
 
-struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDirectory* wd, config* curConfig, int inotifyFD){
+static struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDirectory* wd, config* curConfig, int inotifyFD){
     //Update config or crash before going to sleep again
     if(access(configPath, F_OK) != 0){
         errno = 0; //reset errno because we want to indicate this was expected
@@ -272,7 +301,7 @@ struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDire
         //Possible source of slowdown, look into doing this only N iterations?
         size_t oldSize = curConfig->len;
         struct watchedDirectory* oldWd = wd;
-        config* newConfig = getConfig(configPath);
+        config* newConfig = getConfigFilename(configPath);
         if(newConfig == NULL){
             return NULL;
         }
@@ -309,7 +338,7 @@ struct watchedDirectory* reloadConfig(const char* configPath, struct watchedDire
 }
 
 //I could use longjmp, and avoid using global variables, but I don't think that's a good idea, though possibly beneficial to performance
-void handleSIGRCONFIG(int sig){
+static void handleSIGRCONFIG(int sig){
     if(sig == SIGRCONFIG && curConfig != NULL && wd != NULL){
         syslog(LOG_NOTICE, "Received SIGRCONFIG signal, reloading config now...");
         if((wd = reloadConfig(configPath, wd, curConfig, inotifyFD)) == NULL){
@@ -319,7 +348,7 @@ void handleSIGRCONFIG(int sig){
     }
 }
 
-void handleSIGTERM(int sig){
+static void handleSIGTERM(int sig){
     if(sig == SIGTERM){
         syslog(LOG_NOTICE, "Received SIGTERM, shutting down as requested.");
         exit(EXIT_SUCCESS);

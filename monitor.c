@@ -13,9 +13,32 @@
     #include "printOverride.h"
 #endif
 
+/*!
+ @brief Gets the value from a config line
+ @param line the line that contains token:value
+ @return pointer to the value, or NULL on error 
+*/
+static char* getConfigValue(char* line);
+
+/*!
+ @brief Joins two strings with a char delimiter between
+ @param a the first string
+ @param b the second string
+ @param delimit the char delimiter
+ @return the pointer to the newly created string
+*/
+static char* join(const char* a, const char* b, const char* delimit);
+
+/*!
+ @brief Asks the user for confirmation
+ @param filename the filename that the request pertains to
+ @return true on user accept
+*/
+static bool userConfirm(const char* filename);
+
 //Cannot point to $. After it is done running and returns non NULL token should point to key
-char* getConfigValue(char* token){
-    char* delimit = strchr(token, ':');
+static char* getConfigValue(char* line){
+    char* delimit = strchr(line, ':');
     if(delimit != NULL){
         *delimit = '\0';
         char* value = delimit + 1;
@@ -24,29 +47,13 @@ char* getConfigValue(char* token){
     return NULL;
 }
 
-config* getConfig(const char* filename){
-    FILE* configFile = fopen(filename, "r");
-    if(configFile == NULL){
-        exit(EXIT_FAILURE);
-    }
-    if(fseek(configFile, 0, SEEK_END) != 0){
-        exit(EXIT_FAILURE);
-    }
-    size_t fileSize = ftell(configFile);
-    if(fseek(configFile, 0, SEEK_SET) != 0){
-        exit(EXIT_FAILURE);
-    }
-    char* fileContents = calloc(fileSize + 1, 1);
-    if(fread(fileContents, 1, fileSize, configFile) != fileSize){
-        exit(EXIT_FAILURE);
-    }
-    fclose(configFile);
-    config result;
-    result.len = 0;
-    result.partConfigs = NULL;
-    result.move = NULL;
-    result.recursive = false;
-    result.verbose = false;
+config* getConfig(char* fileContents){
+    config* result = calloc(1, sizeof(config));
+    result->len = 0;
+    result->partConfigs = NULL;
+    result->move = NULL;
+    result->recursive = false;
+    result->verbose = false;
     dirConfig part;
     part.dirName = NULL;
     part.whitelist = NULL;
@@ -95,24 +102,24 @@ config* getConfig(const char* filename){
             token++;
             char* value = getConfigValue(token);
             if(strcmp(token, "move") == 0){
-                result.move = realpath(value, NULL);
-                if(result.move == NULL){
+                result->move = realpath(value, NULL);
+                if(result->move == NULL){
                     return NULL;
                 }
             }
             else if(strcmp(token, "recursive") == 0){
-                result.recursive = strcmp(value, "true") == 0;
+                result->recursive = strcmp(value, "true") == 0;
             }
             else if(strcmp(token, "verbose") == 0){
-                result.verbose = strcmp(value, "true") == 0;
+                result->verbose = strcmp(value, "true") == 0;
             }
         }
         else if(token[0] != '#'){ //we are in dir def line
             if(part.dirName != NULL){
                 //append the part to the result
-                result.partConfigs = realloc(result.partConfigs, (result.len + 1) * sizeof(struct dirConfig));
-                result.partConfigs[result.len] = part;
-                result.len++;
+                result->partConfigs = realloc(result->partConfigs, (result->len + 1) * sizeof(struct dirConfig));
+                result->partConfigs[result->len] = part;
+                result->len++;
                 //reset the part variable
                 part.dirName = NULL;
                 part.whitelist = NULL;
@@ -128,16 +135,47 @@ config* getConfig(const char* filename){
         }
         token = strtok(NULL, "\n");
     }
-    free(fileContents);
-    result.partConfigs = realloc(result.partConfigs, (result.len + 1) * sizeof(struct dirConfig));
-    result.partConfigs[result.len] = part;
-    result.len++;
-    config* resultPtr = malloc(sizeof(config));
-    *resultPtr = result;
-    return resultPtr;
+    result->partConfigs = realloc(result->partConfigs, (result->len + 1) * sizeof(struct dirConfig));
+    result->partConfigs[result->len] = part;
+    result->len++;
+    return result;
 }
 
-char* join(const char* a, const char* b, const char* delimit){
+config* getConfigFilename(const char* filename){
+    //Open the file, if the path is invalid then try to correct it
+    FILE* configFile = NULL;
+    if(access(filename, F_OK) != 0){
+        char* target = realpath(filename, NULL);
+        if(target == NULL){
+            return NULL;
+        }
+        configFile = fopen(target, "r");
+        free(target);
+    }
+    else{
+        configFile = fopen(filename, "r");
+    }
+    if(configFile == NULL){
+        return NULL;
+    }
+    if(fseek(configFile, 0, SEEK_END) != 0){
+        return NULL;
+    }
+    size_t fileSize = ftell(configFile);
+    if(fseek(configFile, 0, SEEK_SET) != 0){
+        return NULL;
+    }
+    char* fileContents = calloc(fileSize + 1, 1);
+    if(fread(fileContents, 1, fileSize, configFile) != fileSize){
+        return NULL;
+    }
+    fclose(configFile);
+    config* newConfig = getConfig(fileContents);
+    free(fileContents);
+    return newConfig;
+}
+
+static char* join(const char* a, const char* b, const char* delimit){
     char* result = calloc(strlen(a) + strlen(b) + strlen(delimit) + 1, 1);
     strcpy(result, a);
     strcat(result, delimit);
@@ -145,7 +183,7 @@ char* join(const char* a, const char* b, const char* delimit){
     return result;
 }
 
-bool userConfirm(const char* filename){
+static bool userConfirm(const char* filename){
     while(true){
         printf("Are you sure you want to remove %s?(y/n)", filename);
         char input = '\0';

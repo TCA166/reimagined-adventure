@@ -2,7 +2,11 @@ daemon
 .vscode
 process
 test*
+!tests
+!tests/*.config
 *.o
+*Check*
+moveTo*
 moveTo
 packages/deb/bin
 packages/deb/etc

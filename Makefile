@@ -15,6 +15,13 @@ clean:
 	rm process
 	rm *.o
 
+check: monitor.o
+	mkdir -p test1 test2 test3 moveTo1 moveTo2
+	checkmk tests/monitor.check > tests/monitorCheck.c
+	gcc tests/monitorCheck.c monitor.o -lcheck -lmagic -lm -lsubunit -Wall -o tests/monitorCheck
+	./tests/monitorCheck
+	rmdir test1 test2 test3 moveTo1 moveTo2
+
 deb: CFLAGS := -O3
 deb: all
 	mkdir -p packages/deb/bin

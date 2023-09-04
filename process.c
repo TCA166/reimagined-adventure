@@ -30,7 +30,7 @@ int main(int argc, char** argv){
             recursive = true;
         }
     }
-    config* mainConfig = getConfig(configPath);
+    config* mainConfig = getConfigFilename(configPath);
     if(mainConfig == NULL){
         perror("Error encountered in getConfig");
         exit(EXIT_FAILURE);
