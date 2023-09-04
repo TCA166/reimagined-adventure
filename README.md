@@ -40,6 +40,7 @@ After each received set of event from inotify the daemon will reload it's config
 Apart from the config reloading itself, a SIGUSR1 signal to the daemon will force an immediate reload.
 By default the daemon logs when it activates, shutdowns gracefully (detects the config is missing), is terminated or crashes due to an error.
 With the verbose flag the individual actions are also logged.
+The daemon also creates a pid file at /var/run/directory-monitor.pid
 
 ## Config file
 
@@ -67,6 +68,7 @@ So far only 3 variables are supported.
 3. move: if provided, the files in this directory won't be deleted, instead moved to the provided path.
 
 Following the variable name a : followed by a value must be provided.
+The config format also supports comments, that are indicated by a single '#' character. Everything after that character is ignored.
 Here's an example config file:
 
 ```config
@@ -77,6 +79,6 @@ $move:./moved
     $verbose:true
     text/plain
 ./onlyMusic
-    audio/mpeg
-    alsoThisOGG.ogg
+    audio/mpeg #all of these audio files will remain
+    sound.ogg #and this one specific ogg file will remain
 ```

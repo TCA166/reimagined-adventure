@@ -265,9 +265,11 @@ int monitorDirectory(dirConfig* config, bool confirm, bool recursive, bool verbo
             dirConfig* subConfig = malloc(sizeof(dirConfig));
             memcpy(subConfig, config, sizeof(dirConfig));
             subConfig->dirName = entityFilename;
-            if(monitorDirectory(subConfig, confirm, recursive, verbose, move) < 0){
-                return -6;
+            int childResult = monitorDirectory(subConfig, confirm, recursive, verbose, move);
+            if(childResult < 0){
+                return childResult;
             }
+            deleted += childResult;
             free(subConfig);
         }
         free(entityFilename);

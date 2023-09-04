@@ -4,7 +4,9 @@
 #include <stdbool.h>
 #include <errno.h>
 
-#suite monitorTests
+#define touch(filename) {FILE* new = fopen(filename, "w"); fwrite("test", 4, 1, new); fclose(new);}
+
+#suite configTests
 
 #test invalidConfig1
     //the file should contain an invalid moteTo directory
@@ -18,7 +20,7 @@
     ck_assert_msg(testConfig == NULL, "testConfig is NOT NULL");
     ck_assert_msg(errno == ENOENT, "Wrong errno");
 
-#test configTest1
+#test configTest
     //the file should be valid
     config* testConfig = getConfigFilename("tests/test1.config");
     ck_assert_msg(testConfig != NULL, "testConfig is NULL");
@@ -29,4 +31,67 @@
     ck_assert_msg(testConfig->partConfigs[0].move == NULL, "Invalid move");
     ck_assert_msg(testConfig->partConfigs[1].recursive == false, "Invalid recursive in config 2");
     ck_assert_str_ne(testConfig->partConfigs[1].move, testConfig->partConfigs[2].move);
+
+#test commentTest
+    //the file should be valid
+    config* testConfig = getConfigFilename("tests/test2.config");
+    ck_assert_msg(testConfig != NULL, "testConfig is NULL");
+    ck_assert_msg(testConfig->len == 1, "Invalid testConfig size");
+    ck_assert_str_eq(testConfig->partConfigs[0].whitelist[0], "file");
+    ck_assert_str_eq(testConfig->partConfigs[0].dirName, realpath("./test1", NULL));
+    ck_assert_str_eq(testConfig->partConfigs[0].move, realpath("moveTo1", NULL));
+
+#suite monitorTests
+
+#test filenameTest
+    dirConfig testConfig = {};
+    testConfig.dirName = realpath("./test1", NULL);
+    char* whitelist[] = {"keep1", "keep2"};
+    testConfig.whitelist = whitelist;
+    testConfig.whitelistLen = 2;
+    testConfig.move = NULL;
+    testConfig.recursive = false;
+    testConfig.verbose = false;
+    touch("./test1/keep1")
+    touch("./test1/dont")
+    touch("./test1/rec/dont")
+    int res = monitorDirectory(&testConfig, false, false, false, NULL);
+    ck_assert_msg(res == 1, "monitorDirectory failed");
+    res = monitorDirectory(&testConfig, false, true, false, NULL);
+    ck_assert_msg(res == 1, "monitorDirectory recursion failed");
+    touch("./test1/rec/dont")
+    testConfig.recursive = true;
+    res = monitorDirectory(&testConfig, false, false, false, NULL);
+    ck_assert_msg(res == 1, "config recursion failed");
+
+#test moveTest
+    dirConfig testConfig = {};
+    testConfig.dirName = realpath("./test1", NULL);
+    char* whitelist[] = {};
+    testConfig.whitelist = whitelist;
+    testConfig.whitelistLen = 0;
+    testConfig.move = realpath("./moveTo1", NULL);
+    testConfig.recursive = false;
+    testConfig.verbose = false;
+    int res = monitorDirectory(&testConfig, false, false, false, NULL);
+    ck_assert_msg(res == 1, "move failed");
+    FILE* test = fopen("./moveTo1/keep1", "r");
+    ck_assert_msg(test != NULL, "Couldn't find moved file");
+    fclose(test);
+
+#test mimeTest
+    dirConfig testConfig = {};
+    testConfig.dirName = realpath("./test1", NULL);
+    char* whitelist[] = {"text/plain"};
+    testConfig.whitelist = whitelist;
+    testConfig.whitelistLen = 1;
+    testConfig.move = NULL;
+    testConfig.recursive = false;
+    testConfig.verbose = false;
+    //if the previous tests succeeded then test1 should be empty
+    touch("./test1/keep1")
+    touch("./test1/dont")
+    int res = monitorDirectory(&testConfig, false, false, false, NULL);
+    ck_assert_msg(res == 0, "mime detection failed");
+
     

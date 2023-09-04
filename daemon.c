@@ -203,7 +203,7 @@ int main(int argc, char** argv){
                 }
             }
             while(true){ //Main daemon function
-                unsigned char inotifyBuffer[EVENT_BUF_LEN];
+                unsigned char inotifyBuffer[EVENT_BUF_LEN] = {};
                 //will wait here until events come
                 int length = read(inotifyFD, inotifyBuffer, EVENT_BUF_LEN);
                 if(length < 0){
